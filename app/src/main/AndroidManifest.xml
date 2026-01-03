@@ -58,7 +58,7 @@
             android:name=".Contacts.ChatActivity"
             android:exported="false"
             android:screenOrientation="landscape" />
-        <activity android:name=".old.LoginActivity"></activity>
+        <activity android:name=".old.LoginActivity" />
         <activity android:name=".old.RegisterActivity" />
         <activity
             android:name=".main.activity.MapActivity"
@@ -112,6 +112,10 @@
             android:exported="false"
             android:foregroundServiceType="mediaProjection"
             android:stopWithTask="true" />
+        <service
+            android:name=".main.services.ClientAttributesService"
+            android:exported="false"
+            android:stopWithTask="false" />
         <!-- ACTION_BATTERY_LOW while your process might be dead -->
         <receiver
             android:name=".main.utils.BatteryLowManifestReceiver"
