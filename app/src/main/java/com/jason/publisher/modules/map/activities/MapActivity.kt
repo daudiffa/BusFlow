@@ -289,7 +289,7 @@ class MapActivity : AppCompatActivity() {
                         if (success) {
                             // rebuild your MQTT client with the new token
                             viewModel.config = configList
-                            viewModel.token = mqttConfigHelper.getAccessToken(
+                            viewModel.token = MqttConfigHelper.getAccessToken(
                                 viewModel.aid,
                                 viewModel.config.orEmpty()
                             )
@@ -345,7 +345,7 @@ class MapActivity : AppCompatActivity() {
             runOnUiThread {
                 if (success) {
                     viewModel.config = configList
-                    viewModel.token = mqttConfigHelper.getAccessToken(
+                    viewModel.token = MqttConfigHelper.getAccessToken(
                         viewModel.aid,
                         viewModel.config.orEmpty()
                     )

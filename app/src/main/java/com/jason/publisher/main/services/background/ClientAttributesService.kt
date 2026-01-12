@@ -36,7 +36,7 @@ class ClientAttributesService : Service() {
     override fun onStartCommand(intent: Intent, flags: Int, startId: Int): Int {
         mqttConfigHelper.fetchConfig { configList ->
             val aid = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-            token = mqttConfigHelper.getAccessToken(aid, configList)
+            token = MqttConfigHelper.getAccessToken(aid, configList)
             mqttManager = if (token.isNotEmpty()) MqttManager(
                 serverUri = SERVER_URI,
                 clientId = CLIENT_ID,
