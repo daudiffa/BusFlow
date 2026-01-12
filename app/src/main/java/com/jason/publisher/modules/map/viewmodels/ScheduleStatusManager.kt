@@ -7,7 +7,9 @@ import androidx.core.content.ContextCompat
 import com.jason.publisher.R
 import com.jason.publisher.databinding.ActivityMapBinding
 import com.jason.publisher.main.loggers.LifecycleLogger
+import com.jason.publisher.main.utils.parseTimeToday
 import com.jason.publisher.modules.map.activities.MapActivity
+import com.jason.publisher.modules.map.utils.calculateDistance
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -76,8 +78,9 @@ class ScheduleStatusManager(
      */
     @SuppressLint("LongLogTag")
     fun checkScheduleStatus() {
+        binding.scheduleStatusValueTextView.text = "Calculating..."
         // If using mock data and first stop hasn't been passed, show "Please wait..."
-        if (activity.forceAheadStatus && !activity.hasPassedFirstStop) {
+        if (activity.viewModel.forceAheadStatus && !activity.viewModel.hasPassedFirstStop) {
             try {
                 binding.scheduleStatusValueTextView.text = "Please wait..."
                 Log.d("ScheduleStatusManager", "✅ UI updated: Please wait...")
@@ -94,37 +97,35 @@ class ScheduleStatusManager(
             return
         }
 
-        if (activity.scheduleList.isEmpty()) return
+        if (activity.viewModel.scheduleList.isEmpty()) return
 
         val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
-        if (activity.latitude == 0.0 && activity.longitude == 0.0) {
+        if (activity.viewModel.latitude == 0.0 && activity.viewModel.longitude == 0.0) {
             Log.w("checkScheduleStatus", "Skipping status check: Invalid location (0.0, 0.0)")
             return
         }
 
         try {
             val scheduledTimeStr = binding.timingPointValueTextView.text.toString()
-            val timingPointTime = activity.timeManager.parseTimeToday(scheduledTimeStr)
+            val timingPointTime = scheduledTimeStr.parseTimeToday()
 
-            if (activity.forceAheadStatus) {
-                activity.baseTimeStr = activity.customTime
-                // ✅ OPTIMIZED: Removed verbose logging
+            if (activity.viewModel.forceAheadStatus) {
+                activity.viewModel.baseTimeStr = activity.viewModel.customTime
             } else {
-                activity.baseTimeStr = activity.scheduleList.first().startTime + ":00"
-                // ✅ OPTIMIZED: Removed verbose logging
+                activity.viewModel.baseTimeStr = activity.viewModel.scheduleList.first().startTime + ":00"
             }
-            val baseTime = activity.timeManager.parseTimeToday(activity.baseTimeStr)
+            val baseTime = activity.viewModel.baseTimeStr.parseTimeToday()
 
             var apiTimeStr = binding.ApiTimeValueTextView.text.toString()
-            val firstAddress = activity.scheduleList.firstOrNull()?.busStops?.firstOrNull()?.address
+            val firstAddress = activity.viewModel.scheduleList.firstOrNull()?.busStops?.firstOrNull()?.address
 
-            if (activity.upcomingStopName == firstAddress
-                && activity.currentStopIndex > 0
-                && activity.currentStopIndex - 1 < activity.durationBetweenStops.size
+            if (activity.viewModel.upcomingStopName.value == firstAddress
+                && activity.viewModel.currentStopIndex > 0
+                && activity.viewModel.currentStopIndex - 1 < activity.viewModel.durationBetweenStops.size
             ) {
-                val durationToFirstTimingPoint = activity.durationBetweenStops[activity.currentStopIndex - 1]
-                val firstSchedule = activity.scheduleList.first()
+                val durationToFirstTimingPoint = activity.viewModel.durationBetweenStops[activity.viewModel.currentStopIndex - 1]
+                val firstSchedule = activity.viewModel.scheduleList.first()
                 val startTimeParts = firstSchedule.startTime.split(":")
                 if (startTimeParts.size != 2) return
                 val adjustedCalendar = Calendar.getInstance().apply {
@@ -141,36 +142,36 @@ class ScheduleStatusManager(
                 apiTimeStr = adjustedApiTime
             }
 
-            val apiTime = activity.timeManager.parseTimeToday(apiTimeStr)
+            val apiTime = apiTimeStr.parseTimeToday()
 
             // ✅ Find next stop that is a red timing point
-            var redStopIndex = activity.stops.indexOfFirst { stop ->
-                activity.redBusStops.contains(stop.address ?: "") &&
-                        activity.stops.indexOf(stop) >= activity.currentStopIndex
+            var redStopIndex = activity.viewModel.stops.indexOfFirst { stop ->
+                activity.viewModel.redBusStops.contains(stop.address ?: "") &&
+                        activity.viewModel.stops.indexOf(stop) >= activity.viewModel.currentStopIndex
             }
 
             // 🔁 Fallback: If no red timing point found, use last stop instead
             if (redStopIndex == -1) {
-                Log.d("checkScheduleStatus", "⚠️ No red timing point found after index ${activity.currentStopIndex}, using final stop as fallback.")
-                redStopIndex = activity.stops.lastIndex
+                Log.d("checkScheduleStatus", "⚠️ No red timing point found after index ${activity.viewModel.currentStopIndex}, using final stop as fallback.")
+                redStopIndex = activity.viewModel.stops.lastIndex
             }
 
-            val redStop = activity.stops[redStopIndex]
+            val redStop = activity.viewModel.stops[redStopIndex]
             val stopLat = redStop.latitude!!
             val stopLon = redStop.longitude!!
 
             // --- 1. Distance from current location to red timing point (d1) ---
-            val d1 = activity.mapController.calculateDistance(activity.latitude, activity.longitude, stopLat, stopLon)
+            val d1 = calculateDistance(activity.viewModel.latitude, activity.viewModel.longitude, stopLat, stopLon)
 
             // --- 2. Total distance from route start to this red timing point (d2) ---
-            val upcomingIndex = activity.route.indexOfLast {
-                activity.mapController.calculateDistance(it.latitude!!, it.longitude!!, stopLat, stopLon) < 30.0
+            val upcomingIndex = activity.viewModel.route.indexOfLast {
+                calculateDistance(it.latitude!!, it.longitude!!, stopLat, stopLon) < 30.0
             }.coerceAtLeast(1)
 
             val d2 = (0 until upcomingIndex).sumOf { i ->
-                val p1 = activity.route[i]
-                val p2 = activity.route[i + 1]
-                activity.mapController.calculateDistance(p1.latitude!!, p1.longitude!!, p2.latitude!!, p2.longitude!!)
+                val p1 = activity.viewModel.route[i]
+                val p2 = activity.viewModel.route[i + 1]
+                calculateDistance(p1.latitude!!, p1.longitude!!, p2.latitude!!, p2.longitude!!)
             }
 
             if (d2 == 0.0) {
@@ -194,7 +195,7 @@ class ScheduleStatusManager(
             }
 
             // Use smoothed speed if available and reasonable, otherwise fall back to schedule average
-            val rawSpeedMps = activity.smoothedSpeed / 3.6
+            val rawSpeedMps = activity.viewModel.smoothedSpeed / 3.6
             val effectiveSpeed = when {
                 rawSpeedMps >= minSpeedMps && rawSpeedMps <= maxSpeedMps -> rawSpeedMps
                 rawSpeedMps < minSpeedMps -> avgSpeedFromSchedule // Use schedule average if too slow
@@ -275,8 +276,8 @@ class ScheduleStatusManager(
                 e.printStackTrace()
             }
 
-            // ✅ ENHANCED: Store ETA calculation data for logging
-            activity.latestETAData = mapOf(
+            // Store ETA calculation data for logging
+            activity.viewModel.latestETAData = mapOf(
                 "d1" to d1,
                 "d2" to d2,
                 "t1" to t1,
@@ -324,25 +325,25 @@ class ScheduleStatusManager(
     private fun overrideLateStatusForNextSchedule() {
         val logTag = "TestMapActivity checkScheduleStatus"
 
-        val scheduledTimeForFinalStopStr = activity.scheduleList.first().endTime + ":00"
-        val finalStopScheduledTime = activity.timeManager.parseTimeToday(scheduledTimeForFinalStopStr)
+        val scheduledTimeForFinalStopStr = activity.viewModel.scheduleList.first().endTime + ":00"
+        val finalStopScheduledTime = scheduledTimeForFinalStopStr.parseTimeToday()
 
-        val baseTimeStr = activity.scheduleList.first().startTime + ":00"
-        val baseTime = activity.timeManager.parseTimeToday(baseTimeStr)
+        val baseTimeStr = activity.viewModel.scheduleList.first().startTime + ":00"
+        val baseTime = baseTimeStr.parseTimeToday()
 
-        val finalStop = activity.stops.last()
+        val finalStop = activity.viewModel.stops.last()
         val stopLat = finalStop.latitude!!
         val stopLon = finalStop.longitude!!
 
-        val d1 = activity.mapController.calculateDistance(activity.latitude, activity.longitude, stopLat, stopLon)
+        val d1 = calculateDistance(activity.viewModel.latitude, activity.viewModel.longitude, stopLat, stopLon)
 
-        val finalStopRouteIndex = activity.route.indexOfLast {
-            activity.mapController.calculateDistance(it.latitude!!, it.longitude!!, stopLat, stopLon) < 30.0
+        val finalStopRouteIndex = activity.viewModel.route.indexOfLast {
+            calculateDistance(it.latitude!!, it.longitude!!, stopLat, stopLon) < 30.0
         }.coerceAtLeast(1)
         val d2 = (0 until finalStopRouteIndex).sumOf { i ->
-            val p1 = activity.route[i]
-            val p2 = activity.route[i + 1]
-            activity.mapController.calculateDistance(p1.latitude!!, p1.longitude!!, p2.latitude!!, p2.longitude!!)
+            val p1 = activity.viewModel.route[i]
+            val p2 = activity.viewModel.route[i + 1]
+            calculateDistance(p1.latitude!!, p1.longitude!!, p2.latitude!!, p2.longitude!!)
         }
         if (d2 == 0.0) {
             Log.e(logTag, "Total route distance is zero; cannot compute predicted arrival.")
@@ -360,7 +361,7 @@ class ScheduleStatusManager(
             minSpeedMps
         }
 
-        val rawSpeedMps = activity.smoothedSpeed / 3.6
+        val rawSpeedMps = activity.viewModel.smoothedSpeed / 3.6
         val speedMetersPerSec = when {
             rawSpeedMps >= minSpeedMps && rawSpeedMps <= maxSpeedMps -> rawSpeedMps
             rawSpeedMps < minSpeedMps -> avgSpeedFromSchedule
@@ -374,9 +375,9 @@ class ScheduleStatusManager(
             add(Calendar.SECOND, t1.toInt())
         }
 
-        val nextScheduleStartRaw = activity.timeManager.getNextScheduleStartTime(activity.scheduleData) ?: return
+        val nextScheduleStartRaw = activity.timeManager.getNextScheduleStartTime(activity.viewModel.scheduleData) ?: return
         val nextScheduleStartStr = "$nextScheduleStartRaw:00"
-        val nextScheduleStartTime = activity.timeManager.parseTimeToday(nextScheduleStartStr)
+        val nextScheduleStartTime = nextScheduleStartStr.parseTimeToday()
 
         val deltaNextSec = ((nextScheduleStartTime.time - predictedArrival.time.time) / 1000).toInt()
 

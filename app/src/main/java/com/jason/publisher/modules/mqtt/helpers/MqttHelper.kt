@@ -13,6 +13,7 @@ import com.jason.publisher.main.model.Bus
 import com.jason.publisher.main.loggers.LifecycleLogger
 import com.jason.publisher.main.services.ClientAttributesResponse
 import com.jason.publisher.main.services.ApiService
+import com.jason.publisher.modules.map.utils.calculateDistance
 import com.jason.publisher.modules.mqtt.services.MqttManager
 import org.json.JSONObject
 import retrofit2.Call
@@ -31,7 +32,7 @@ class MqttHelper(
 ) {
     // Configured managers passed in or initialized in MapActivity
     private val mqttManager: MqttManager get() = owner.mqttManager
-    private val apiService: ApiService get() = owner.apiService
+    private val apiService: ApiService get() = owner.viewModel.apiService
 
     companion object {
         const val SERVER_URI = "ssl://mqtt.thingsboard.cloud:8883"
@@ -82,7 +83,7 @@ class MqttHelper(
             owner.runOnUiThread {
                 val data = Gson().fromJson(message, Bus::class.java)
                 val newConfig = data.shared?.config?.busConfig ?: return@runOnUiThread
-                val newArr = newConfig.filter { it.aid != owner.aid }
+                val newArr = newConfig.filter { it.aid != owner.viewModel.aid }
 
                 // For each new bus, just request its attributes.
                 // getAttributes() will create & log the marker exactly once.
@@ -93,43 +94,26 @@ class MqttHelper(
                 // ✅ FIX: remove dropped-out buses and clean up all tracking data
                 // Also remove buses that are no longer in arrBusData (orphaned from ThingsBoard)
                 val newArrTokens = newArr.map { it.accessToken }.toSet()
-                val toRemove = owner.markerBus.keys.filter {
-                    it != owner.token && it !in newArrTokens
+                val toRemove = owner.mapController.busMarkerRegistry.keys.filter {
+                    it != owner.viewModel.token && it !in newArrTokens
                 }
                 toRemove.forEach { token ->
-                    binding.map.layerManager.layers.remove(owner.markerBus[token])
-                    owner.markerBus.remove(token)
-                    owner.prevCoords.remove(token)
-                    owner.lastSeen.remove(token)
+                    binding.map.layerManager.layers.remove(owner.mapController.busMarkerRegistry[token])
+                    owner.mapController.busMarkerRegistry.remove(token)
+                    owner.viewModel.prevOtherBusCoordinates.remove(token)
+                    owner.viewModel.lastSeen.remove(token)
                     owner.otherBusLabels.remove(token)
                     Log.d("MqttHelper subscribeSharedData", "Removed bus $token - no longer in arrBusData")
                 }
 
-                owner.arrBusData = newArr
+                owner.viewModel.arrBusData = newArr
                 binding.map.invalidate()
-                // ✅ FIX: Refresh detail panel after arrBusData is updated
+                // Refresh detail panel after arrBusData is updated
                 // This ensures detail panel shows all buses that are in the system
-                owner.mapController.refreshDetailPanelIcons()
+                owner.panelController.refreshDetailPanelIcons(binding.map.model.mapViewPosition.zoomLevel.toDouble())
             }
         }
     }
-
-//    /**
-//     * Sends data attributes to the server periodically.
-//     */
-//    fun sendRequestAttributes() {
-//        val handler = Handler(Looper.getMainLooper())
-//        handler.postDelayed(object : Runnable {
-//            override fun run() {
-//                owner.arrBusData.forEach { bus ->
-//                    if (owner.markerBus.containsKey(bus.accessToken)) {
-//                        getAttributes(apiService, bus.accessToken, clientKeys)
-//                    }
-//                }
-//                handler.postDelayed(this, MIN_FETCH_INTERVAL_MS)
-//            }
-//        }, MIN_FETCH_INTERVAL_MS)
-//    }
 
     // ----------------------------------------------------------------
     // 1) cancellable poller
@@ -137,7 +121,7 @@ class MqttHelper(
     private var pollingHandler: Handler? = null
     private val pollRunnable = object : Runnable {
         override fun run() {
-            owner.arrBusData.forEach { bus ->
+            owner.viewModel.arrBusData.forEach { bus ->
                 getAttributes(apiService, bus.accessToken)
             }
             pollingHandler?.postDelayed(this, MIN_FETCH_INTERVAL_MS)
@@ -165,7 +149,7 @@ class MqttHelper(
      */
     fun refreshAllAttributes() {
         lastFetchTime.clear()
-        owner.arrBusData.forEach { bus ->
+        owner.viewModel.arrBusData.forEach { bus ->
             getAttributes(apiService, bus.accessToken)
         }
     }
@@ -219,7 +203,7 @@ class MqttHelper(
                         // ✅ FIX: If this is the first time we set a label for this bus, refresh detail panel
                         // This ensures detail panel shows the bus even if marker hasn't been created yet
                         if (wasEmpty) {
-                            owner.runOnUiThread { owner.mapController.refreshDetailPanelIcons() }
+                            owner.runOnUiThread { owner.panelController.refreshDetailPanelIcons(binding.map.model.mapViewPosition.zoomLevel.toDouble()) }
                         }
                     }
                     try {
@@ -232,12 +216,12 @@ class MqttHelper(
                             try {
                                 owner.runOnUiThread {
                                     try {
-                                        owner.mapController.refreshDetailPanelIcons()
+                                        owner.panelController.refreshDetailPanelIcons(binding.map.model.mapViewPosition.zoomLevel.toDouble())
                                     } catch (e: Exception) {
                                         Log.w("MqttHelper", "refreshDetailPanelIcons failed: ${e.message}")
                                     }
                                     try {
-                                        owner.logPanelDetailTextOnly()
+                                        owner.panelController.logPanelDetailTextOnly()
                                     } catch (e: Exception) {
                                         Log.w("MqttHelper", "logPanelDetailTextOnly failed: ${e.message}")
                                     }
@@ -260,16 +244,16 @@ class MqttHelper(
                 if (lat == 0.0 && lon == 0.0) {
                     // Remove marker if it exists (invalid coordinates)
                     owner.runOnUiThread {
-                        owner.markerBus[token]?.let { marker ->
+                        owner.mapController.busMarkerRegistry[token]?.let { marker ->
                             binding.map.layerManager.layers.remove(marker)
-                            owner.markerBus.remove(token)
-                            owner.prevCoords.remove(token)
-                            owner.lastSeen.remove(token)
+                            owner.mapController.busMarkerRegistry.remove(token)
+                            owner.viewModel.prevOtherBusCoordinates.remove(token)
+                            owner.viewModel.lastSeen.remove(token)
                             owner.otherBusLabels.remove(token)
                             binding.map.invalidate()
                         }
                         if (labelUpdated) {
-                            owner.mapController.refreshDetailPanelIcons()
+                            owner.panelController.refreshDetailPanelIcons(binding.map.model.mapViewPosition.zoomLevel.toDouble())
                         }
                     }
                     Log.d("MqttHelper getAttributes", "Ignoring $token at (0,0) - removed if exists")
@@ -281,15 +265,15 @@ class MqttHelper(
                 if (resolvedLabel.isNullOrBlank()) {
                     // Bus hasn't started yet - remove marker if exists
                     owner.runOnUiThread {
-                        owner.markerBus[token]?.let { marker ->
+                        owner.mapController.busMarkerRegistry[token]?.let { marker ->
                             binding.map.layerManager.layers.remove(marker)
-                            owner.markerBus.remove(token)
+                            owner.mapController.busMarkerRegistry.remove(token)
                             binding.map.invalidate()
                         }
-                        owner.prevCoords.remove(token)
-                        owner.lastSeen.remove(token)
+                        owner.viewModel.prevOtherBusCoordinates.remove(token)
+                        owner.viewModel.lastSeen.remove(token)
                         owner.otherBusLabels.remove(token)
-                        owner.mapController.refreshDetailPanelIcons()
+                        owner.panelController.refreshDetailPanelIcons(binding.map.model.mapViewPosition.zoomLevel.toDouble())
                     }
                     return
                 }
@@ -299,33 +283,33 @@ class MqttHelper(
                 if (resolvedLabel.contains("Break", ignoreCase = true)) {
                     // Bus is on break - remove marker from map but keep label for detail panel
                     owner.runOnUiThread {
-                        owner.markerBus[token]?.let { marker ->
+                        owner.mapController.busMarkerRegistry[token]?.let { marker ->
                             binding.map.layerManager.layers.remove(marker)
-                            owner.markerBus.remove(token)
+                            owner.mapController.busMarkerRegistry.remove(token)
                             binding.map.invalidate()
                         }
-                        // ✅ FIX: Keep otherBusLabels so bus on break appears in detail panel
+                        // Keep otherBusLabels so bus on break appears in detail panel
                         // Don't remove prevCoords, lastSeen, or otherBusLabels
-                        owner.mapController.refreshDetailPanelIcons()
+                        owner.panelController.refreshDetailPanelIcons(binding.map.model.mapViewPosition.zoomLevel.toDouble())
                     }
                     return
                 }
 
-                // ✅ FIX: Check if bus is still active (has sent location update recently)
+                // Check if bus is still active (has sent location update recently)
                 // Bus that was started but app was closed will have currentTripLabel but no recent updates
-                val lastSeenTime = owner.lastSeen[token] ?: 0L
+                val lastSeenTime = owner.viewModel.lastSeen[token] ?: 0L
                 if (lastSeenTime > 0L && (now - lastSeenTime) > MAX_INACTIVE_TIME_MS) {
                     // Bus hasn't sent update in 2 minutes - consider it inactive and remove
                     owner.runOnUiThread {
-                        owner.markerBus[token]?.let { marker ->
+                        owner.mapController.busMarkerRegistry[token]?.let { marker ->
                             binding.map.layerManager.layers.remove(marker)
-                            owner.markerBus.remove(token)
-                            owner.prevCoords.remove(token)
-                            owner.lastSeen.remove(token)
+                            owner.mapController.busMarkerRegistry.remove(token)
+                            owner.viewModel.prevOtherBusCoordinates.remove(token)
+                            owner.viewModel.lastSeen.remove(token)
                             owner.otherBusLabels.remove(token)
                             binding.map.invalidate()
                         }
-                        owner.mapController.refreshDetailPanelIcons()
+                        owner.panelController.refreshDetailPanelIcons(binding.map.model.mapViewPosition.zoomLevel.toDouble())
                     }
                     Log.d("MqttHelper getAttributes", "Removing $token - bus inactive (no update in ${(now - lastSeenTime) / 1000}s)")
                     return
@@ -333,68 +317,68 @@ class MqttHelper(
 
                 // ✅ FIX: If bus already exists in markerBus but coordinates haven't changed,
                 // it might be a stale bus (app was closed). Don't update lastSeen if coordinates are stale.
-                val existingPrev = owner.prevCoords[token]
+                val existingPrev = owner.viewModel.prevOtherBusCoordinates[token]
                 if (existingPrev != null && existingPrev.first == lat && existingPrev.second == lon) {
                     // Coordinates haven't changed - this might be stale data from ThingsBoard
                     // Only update lastSeen if it's a recent first-time fetch (within last 30 seconds)
                     if (lastSeenTime == 0L) {
                         // First time seeing this bus with stale coordinates - set lastSeen but don't create marker yet
                         // Wait for next update to see if coordinates change
-                        owner.lastSeen[token] = now
+                        owner.viewModel.lastSeen[token] = now
                         Log.d("MqttHelper getAttributes", "First fetch for $token with stale coordinates - waiting for movement")
                         return
                     } else if ((now - lastSeenTime) > 30_000L) {
                         // Coordinates haven't changed in 30 seconds - likely stale, remove
                         owner.runOnUiThread {
-                            owner.markerBus[token]?.let { marker ->
+                            owner.mapController.busMarkerRegistry[token]?.let { marker ->
                                 binding.map.layerManager.layers.remove(marker)
-                                owner.markerBus.remove(token)
-                                owner.prevCoords.remove(token)
-                                owner.lastSeen.remove(token)
+                                owner.mapController.busMarkerRegistry.remove(token)
+                                owner.viewModel.prevOtherBusCoordinates.remove(token)
+                                owner.viewModel.lastSeen.remove(token)
                                 owner.otherBusLabels.remove(token)
                                 binding.map.invalidate()
                             }
-                            owner.mapController.refreshDetailPanelIcons()
+                            owner.panelController.refreshDetailPanelIcons(binding.map.model.mapViewPosition.zoomLevel.toDouble())
                         }
                         Log.d("MqttHelper getAttributes", "Removing $token - stale coordinates (no movement in 30s)")
                         return
                     }
                     // Coordinates are same but recent - just update lastSeen and return (no marker update needed)
-                    owner.lastSeen[token] = now
+                    owner.viewModel.lastSeen[token] = now
                     if (labelUpdated) {
-                        owner.runOnUiThread { owner.mapController.refreshDetailPanelIcons() }
+                        owner.runOnUiThread { owner.panelController.refreshDetailPanelIcons(binding.map.model.mapViewPosition.zoomLevel.toDouble()) }
                     }
                     return
                 }
 
                 // First time we see this token → record and draw immediately
-                // ✅ FIX: Only create marker if bus has started (has currentTripLabel) and is not on Break
-                val prev = owner.prevCoords[token]
+                // Only create marker if bus has started (has currentTripLabel) and is not on Break
+                val prev = owner.viewModel.prevOtherBusCoordinates[token]
                 if (prev == null) {
-                    // ✅ FIX: Don't create marker if bus hasn't started yet
+                    // Don't create marker if bus hasn't started yet
                     if (resolvedLabel.isBlank()) {
                         // Bus hasn't started - just record coordinates but don't create marker
-                        owner.prevCoords[token] = lat to lon
-                        owner.lastSeen[token] = now
-                        // ✅ FIX: Refresh detail panel even if bus hasn't started (to remove it if it was there)
+                        owner.viewModel.prevOtherBusCoordinates[token] = lat to lon
+                        owner.viewModel.lastSeen[token] = now
+                        // Refresh detail panel even if bus hasn't started (to remove it if it was there)
                         if (labelUpdated) {
-                            owner.runOnUiThread { owner.mapController.refreshDetailPanelIcons() }
+                            owner.runOnUiThread { owner.panelController.refreshDetailPanelIcons(binding.map.model.mapViewPosition.zoomLevel.toDouble()) }
                         }
                         return
                     }
 
-                    // ✅ FIX: Don't create marker if bus is on Break, but keep label for detail panel
+                    // Don't create marker if bus is on Break, but keep label for detail panel
                     if (resolvedLabel.contains("Break", ignoreCase = true)) {
                         // Bus is on break - record coordinates and label but don't create marker
-                        owner.prevCoords[token] = lat to lon
-                        owner.lastSeen[token] = now
-                        // ✅ FIX: Refresh detail panel so bus on break appears
-                        owner.runOnUiThread { owner.mapController.refreshDetailPanelIcons() }
+                        owner.viewModel.prevOtherBusCoordinates[token] = lat to lon
+                        owner.viewModel.lastSeen[token] = now
+                        // Refresh detail panel so bus on break appears
+                        owner.runOnUiThread { owner.panelController.refreshDetailPanelIcons(binding.map.model.mapViewPosition.zoomLevel.toDouble()) }
                         return
                     }
 
-                    owner.prevCoords[token] = lat to lon
-                    owner.lastSeen[token] = now
+                    owner.viewModel.prevOtherBusCoordinates[token] = lat to lon
+                    owner.viewModel.lastSeen[token] = now
 
                     // Log bus detection with destination info
                     val label = resolvedLabel
@@ -409,18 +393,18 @@ class MqttHelper(
                     // Draw marker immediately only if bus has started
                     owner.runOnUiThread {
                         val pos = LatLong(lat, lon)
-                        val idx = owner.arrBusData.indexOfFirst { it.accessToken == token }
+                        val idx = owner.viewModel.arrBusData.indexOfFirst { it.accessToken == token }
                         val slot = ((idx + 2).coerceAtMost(10)).coerceAtLeast(2)
                         val iconName = "ic_bus_symbol$slot"
                         val iconRes = owner.resources.getIdentifier(iconName, "drawable", owner.packageName)
                         val rotated = client.bearing?.let { owner.mapController.rotateDrawable(iconRes, it) }
                         val marker = Marker(pos, rotated, 0, 0)
                         binding.map.layerManager.layers.add(marker)
-                        owner.markerBus[token] = marker
+                        owner.mapController.busMarkerRegistry[token] = marker
                         binding.map.invalidate()
                         // ✅ FIX: Always refresh detail panel when marker is created for a new bus
                         // This ensures detail panel shows all active buses, even if label wasn't updated
-                        owner.mapController.refreshDetailPanelIcons()
+                        owner.panelController.refreshDetailPanelIcons(binding.map.model.mapViewPosition.zoomLevel.toDouble())
                     }
                     Log.d("MqttHelper getAttributes", "First fetch for $token; marker created (bus has started)")
                     return
@@ -428,59 +412,59 @@ class MqttHelper(
 
                 // No movement → still update lastSeen and refresh panel if label changed
                 if (prev.first == lat && prev.second == lon) {
-                    owner.lastSeen[token] = now // Update lastSeen even if no movement
+                    owner.viewModel.lastSeen[token] = now // Update lastSeen even if no movement
                     // ✅ FIX: If label changed to "Break", remove marker but keep label for detail panel
                     if (labelUpdated && resolvedLabel.contains("Break", ignoreCase = true)) {
                         owner.runOnUiThread {
-                            owner.markerBus[token]?.let { marker ->
+                            owner.mapController.busMarkerRegistry[token]?.let { marker ->
                                 binding.map.layerManager.layers.remove(marker)
-                                owner.markerBus.remove(token)
+                                owner.mapController.busMarkerRegistry.remove(token)
                                 binding.map.invalidate()
                             }
-                            // ✅ FIX: Keep otherBusLabels so bus on break appears in detail panel
-                            owner.mapController.refreshDetailPanelIcons()
+                            // Keep otherBusLabels so bus on break appears in detail panel
+                            owner.panelController.refreshDetailPanelIcons(binding.map.model.mapViewPosition.zoomLevel.toDouble())
                         }
                         return
                     }
                     if (labelUpdated) {
-                        owner.runOnUiThread { owner.mapController.refreshDetailPanelIcons() }
+                        owner.runOnUiThread { owner.panelController.refreshDetailPanelIcons(binding.map.model.mapViewPosition.zoomLevel.toDouble()) }
                     }
                     return
                 }
 
                 // Movement detected → update marker (and re-rotate), then refresh panel if needed
                 // Check if movement is significant enough (at least 5 meters)
-                val distance = owner.mapController.calculateDistance(prev.first, prev.second, lat, lon)
+                val distance = calculateDistance(prev.first, prev.second, lat, lon)
                 if (distance < MIN_MOVEMENT_DISTANCE && !labelUpdated) {
                     // Small movement, just update lastSeen
-                    owner.lastSeen[token] = now
+                    owner.viewModel.lastSeen[token] = now
                     return
                 }
 
                 // ✅ FIX: If label changed to "Break", remove marker but keep label for detail panel
                 if (resolvedLabel.contains("Break", ignoreCase = true)) {
                     owner.runOnUiThread {
-                        owner.markerBus[token]?.let { marker ->
+                        owner.mapController.busMarkerRegistry[token]?.let { marker ->
                             binding.map.layerManager.layers.remove(marker)
-                            owner.markerBus.remove(token)
+                            owner.mapController.busMarkerRegistry.remove(token)
                             binding.map.invalidate()
                         }
-                        // ✅ FIX: Keep otherBusLabels so bus on break appears in detail panel
-                        owner.mapController.refreshDetailPanelIcons()
+                        // Keep otherBusLabels so bus on break appears in detail panel
+                        owner.panelController.refreshDetailPanelIcons(binding.map.model.mapViewPosition.zoomLevel.toDouble())
                     }
                     return
                 }
 
-                owner.prevCoords[token] = lat to lon
-                owner.lastSeen[token] = now
+                owner.viewModel.prevOtherBusCoordinates[token] = lat to lon
+                owner.viewModel.lastSeen[token] = now
 
                 owner.runOnUiThread {
                     try {
                         val pos = LatLong(lat, lon)
-                        val existing = owner.markerBus[token]
+                        val existing = owner.mapController.busMarkerRegistry[token]
 
                         // slot icon selection stays stable per bus position in arrBusData
-                        val idx = owner.arrBusData.indexOfFirst { it.accessToken == token }
+                        val idx = owner.viewModel.arrBusData.indexOfFirst { it.accessToken == token }
                         val slot = ((idx + 2).coerceAtMost(10)).coerceAtLeast(2)
                         val iconName = "ic_bus_symbol$slot"
                         val iconRes = owner.resources.getIdentifier(iconName, "drawable", owner.packageName)
@@ -489,7 +473,7 @@ class MqttHelper(
                         if (existing == null) {
                             val marker = Marker(pos, rotated, 0, 0)
                             binding.map.layerManager.layers.add(marker)
-                            owner.markerBus[token] = marker
+                            owner.mapController.busMarkerRegistry[token] = marker
                         } else {
                             existing.latLong = pos
                             if (rotated != null) existing.bitmap = rotated
@@ -500,7 +484,7 @@ class MqttHelper(
 
                         // ensure the two-line panel updates when label changed
                         if (labelUpdated) {
-                            owner.mapController.refreshDetailPanelIcons()
+                            owner.panelController.refreshDetailPanelIcons(binding.map.model.mapViewPosition.zoomLevel.toDouble())
                         }
                     } catch (e: Exception) {
                         Log.e("MqttHelper", "Error updating marker: ${e.message}", e)
@@ -534,15 +518,7 @@ class MqttHelper(
     /**
      * Publishes telemetry data including latitude, longitude, bearing, speed, direction, and aid.
      */
-    fun publishTelemetryData() {
-        val json = JSONObject().apply {
-            put("latitude", owner.latitude)
-            put("longitude", owner.longitude)
-            put("bearing", owner.bearing)
-            put("direction", owner.direction)
-            put("speed", owner.speed)
-            put("aid", owner.aid)
-        }
+    fun publishTelemetryData(json: JSONObject) {
         Handler(Looper.getMainLooper()).post {
             mqttManager.publish(
                 PUB_POS_TOPIC,

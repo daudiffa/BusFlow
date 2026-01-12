@@ -11,7 +11,6 @@ import androidx.lifecycle.ViewModel
 import com.jason.publisher.main.model.ScheduleItem
 import java.text.SimpleDateFormat
 import java.util.Calendar
-import java.util.Date
 import java.util.Locale
 
 class TimeManager(private val savedStateHandle: SavedStateHandle): ViewModel() {
@@ -234,22 +233,8 @@ class TimeManager(private val savedStateHandle: SavedStateHandle): ViewModel() {
                 else            -> emptyList()
             }
         }
-        // ✅ REVERT: Original implementation - return second item if available
+        // Return second item if available
         return if (flat.size > 1) flat[1].startTime else null
-    }
-
-    /**
-     * Set the same base date for all Date
-     */
-    fun parseTimeToday(timeStr: String): Date {
-        val parts = timeStr.split(":")
-        if (parts.size != 3) return Date()
-        return Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, parts[0].toInt())
-            set(Calendar.MINUTE, parts[1].toInt())
-            set(Calendar.SECOND, parts[2].toInt())
-            set(Calendar.MILLISECOND, 0)
-        }.time
     }
 
 }
