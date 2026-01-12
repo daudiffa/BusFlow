@@ -149,7 +149,7 @@ class MapActivity : AppCompatActivity() {
         scheduleStatusManager = ScheduleStatusManager(this, binding)
         mqttHelper = MqttHelper(this, binding)
         panelController = DetailPanelController(this, binding.detailIconsContainer)
-        mapController  = MapViewController(this, binding, mqttHelper)
+        mapController = MapViewController(this, binding.map, mqttHelper)
 
         // Retrieve data passed from TimeTableActivity
         viewModel.aid = intent.getStringExtra("AID") ?: "Unknown"
