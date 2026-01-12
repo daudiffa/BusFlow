@@ -1,4 +1,4 @@
-package com.jason.publisher.main.ui
+package com.jason.publisher.main.helpers
 
 import android.view.LayoutInflater
 import android.view.ViewGroup

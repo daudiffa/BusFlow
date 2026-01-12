@@ -11,7 +11,7 @@ import android.os.Looper
 import android.view.WindowManager
 import androidx.core.app.ActivityCompat
 import com.jason.publisher.main.services.ScreenRecordService
-import com.jason.publisher.main.sos.BatteryLowWatcher
+import com.jason.publisher.main.utils.BatteryLowWatcher
 import com.jason.publisher.main.utils.FileLogger
 import android.Manifest
 import android.util.Log
@@ -100,7 +100,7 @@ class App : Application(), Application.ActivityLifecycleCallbacks {
 
         // 🟢 Also force an immediate battery check on every resume
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            com.jason.publisher.main.sos.BatteryLowWatcher.ensureNow(activity)
+            BatteryLowWatcher.ensureNow(activity)
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
