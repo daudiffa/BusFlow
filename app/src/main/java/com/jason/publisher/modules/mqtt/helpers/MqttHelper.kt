@@ -35,8 +35,6 @@ class MqttHelper(
     private val apiService: ApiService get() = owner.viewModel.apiService
 
     companion object {
-        const val SERVER_URI = "ssl://mqtt.thingsboard.cloud:8883"
-        const val CLIENT_ID = "jasonAndroidClientId"
         /** Topic path for updating attributes */
         const val ATTR_TOPIC = "v1/devices/me/attributes"
         /** Topic path for requesting admin message */

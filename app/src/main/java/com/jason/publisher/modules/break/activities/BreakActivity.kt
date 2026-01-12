@@ -145,11 +145,7 @@ class BreakActivity : AppCompatActivity() {
         TripLog.mark("driver break")
 
         // ===== MQTT =====
-        mqttManager = MqttManager(
-            serverUri = MqttHelper.Companion.SERVER_URI,
-            clientId = MqttHelper.Companion.CLIENT_ID,
-            username = token
-        )
+        mqttManager = MqttManager(username = token)
 
         mqttManager.connect { ok ->
             if (ok) {

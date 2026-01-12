@@ -6,11 +6,7 @@ import com.jason.publisher.main.model.BusItem
 import com.jason.publisher.modules.mqtt.services.MqttManager
 
 class MqttConfigHelper {
-    private val mqttManagerConfig = MqttManager(
-        serverUri = MqttHelper.Companion.SERVER_URI,
-        clientId = MqttHelper.Companion.CLIENT_ID,
-        username = CONFIG_TOKEN
-    )
+    private val mqttManagerConfig = MqttManager(username = CONFIG_TOKEN)
 
     companion object {
         private const val CONFIG_TOKEN = "BEXBIArF3URHeYBslJE2"
