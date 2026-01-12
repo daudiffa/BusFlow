@@ -1,6 +1,6 @@
 package com.jason.publisher.main.utils
 
-import NetworkReceiver
+import com.jason.publisher.main.services.NetworkReceiver
 import android.app.Activity
 import android.content.Context
 import android.content.IntentFilter

@@ -1,13 +1,16 @@
 package com.jason.publisher.main.model
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
 import java.io.Serializable
 
+@Parcelize
 data class ScheduleItem(
     val runNo: String,
     val startTime: String,
     val endTime: String,
     val runName: String,
     val busStops: List<BusScheduleInfo>
-) : Serializable
+) : Parcelable
 
 data class BusScheduleInfo(
     val name: String,
